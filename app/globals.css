@@ -1,0 +1,241 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;700;900&family=Noto+Sans+TC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+/* Class-based dark mode */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── 享租 Design Tokens ─────────────────────────────── */
+:root {
+  /* Page bg / surfaces */
+  --bg:       #FBF8F8;
+  --card:     #FFFFFF;
+  --text:     #1F1A1C;
+  --muted:    #4A3F44;
+  --subtle:   #8C7D83;
+  --border:   #E8E1E3;
+  --surface:  #F4EFF0;
+
+  /* Pig Pink scale — 豚紅 (primary brand) */
+  --pink-50:  #FFF5F7;
+  --pink-100: #FFE4EA;
+  --pink-200: #FFC9D6;
+  --pink-300: #FFA8BD;
+  --pink-400: #F587A0;
+  --pink-500: #EC6788;   /* PRIMARY */
+  --pink-600: #D54B70;
+  --pink-700: #B33458;
+  --pink-800: #862240;
+  --pink-900: #4C1426;
+
+  /* Warm ink neutrals */
+  --ink-50:   #FBF8F8;
+  --ink-100:  #F4EFF0;
+  --ink-200:  #E8E1E3;
+  --ink-300:  #D2C8CC;
+  --ink-400:  #B0A3A8;
+  --ink-500:  #8C7D83;
+  --ink-600:  #6B5D63;
+  --ink-700:  #4A3F44;
+  --ink-800:  #2E2629;
+  --ink-900:  #1F1A1C;
+
+  /* Aliases (keep backward-compat with existing class names) */
+  --wood:     var(--pink-500);
+  --wood-h:   var(--pink-600);
+  --wood-lt:  var(--pink-50);
+  --wood-dk:  var(--pink-700);
+
+  /* Topbar — white / frosted */
+  --navbar:   #FFFFFF;
+  --navbar-h: var(--pink-50);
+
+  /* Semantic */
+  --success:    #2F9460;
+  --success-bg: #E5F4EC;
+  --warning:    #D98C2A;
+  --warning-bg: #FBF0DD;
+  --danger:     #D14343;
+  --danger-bg:  #FCE7E7;
+
+  /* Category palette */
+  --cat-cream:    #FBE7B6;
+  --cat-leaf:     #9BC68A;
+  --cat-sky:      #A8D0E6;
+  --cat-lavender: #C7B3DE;
+  --cat-clay:     #D49880;
+
+  /* Shadows — warm pink-tinted (never cool blue) */
+  --shadow-xs:    0 1px 2px rgba(76,20,38,.06);
+  --shadow-sm:    0 2px 6px rgba(76,20,38,.06), 0 1px 2px rgba(76,20,38,.04);
+  --shadow-md:    0 6px 16px rgba(76,20,38,.08), 0 2px 4px rgba(76,20,38,.04);
+  --shadow-lg:    0 16px 32px rgba(76,20,38,.10), 0 4px 8px rgba(76,20,38,.04);
+  --shadow-xl:    0 24px 48px rgba(76,20,38,.14), 0 8px 16px rgba(76,20,38,.06);
+  --shadow-brand: 0 8px 20px rgba(236,103,136,.32);
+
+  /* Motion */
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast:    140ms;
+  --dur-base:    220ms;
+  --dur-slow:    400ms;
+}
+
+.dark {
+  --bg:       #1C1C1E;
+  --card:     #2C2C2E;
+  --text:     #E8E4DC;
+  --muted:    #9A9288;
+  --subtle:   #6B6560;
+  --border:   #302E2A;
+  --surface:  #201F1C;
+  --wood:     #F55E95;
+  --wood-h:   #EC6788;
+  --wood-lt:  #3A0F1E;
+  --wood-dk:  #FFB0CA;
+  --navbar:   #1C1C1E;
+  --navbar-h: #2E2028;
+  --ink-50:   #2C2C2E;
+  --ink-100:  #3A3A3C;
+  --ink-200:  #48484A;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.20), 0 2px 10px rgba(0,0,0,.12);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.14);
+}
+
+/* Map to Tailwind via @theme so we get bg-*, text-*, border-* utilities */
+@theme {
+  --color-bg:       var(--bg);
+  --color-card:     var(--card);
+  --color-primary:  var(--text);
+  --color-muted:    var(--muted);
+  --color-subtle:   var(--subtle);
+  --color-border:   var(--border);
+  --color-surface:  var(--surface);
+  --color-wood:     var(--wood);
+  --color-wood-h:   var(--wood-h);
+  --color-wood-lt:  var(--wood-lt);
+  --color-wood-dk:  var(--wood-dk);
+  --color-navbar:   var(--navbar);
+  --color-navbar-h: var(--navbar-h);
+  --color-pink-50:  var(--pink-50);
+  --color-pink-100: var(--pink-100);
+  --color-pink-200: var(--pink-200);
+  --color-pink-500: var(--pink-500);
+  --color-pink-700: var(--pink-700);
+
+  --font-sans:    'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+  --font-display: 'Noto Serif TC', 'Georgia', serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* ── Base ────────────────────────────────────────────── */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans TC', 'Helvetica Neue', 'Arial', 'Hiragino Sans', 'Microsoft JhengHei', sans-serif;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: 'Noto Serif TC', 'Georgia', serif;
+}
+
+/* ── Utilities ───────────────────────────────────────── */
+.line-clamp-1 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.line-clamp-3 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* Frosted nav — adapts to dark mode */
+.zx-nav-glass {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+}
+.dark .zx-nav-glass {
+  background: rgba(28, 28, 30, 0.92);
+}
+
+/* Eyebrow label — BRAND PINK · TRACKED CAPS */
+.zx-eyebrow {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--wood);
+}
+
+/* Card shadow — warm pink-tinted */
+.muji-shadow {
+  box-shadow: var(--shadow-sm);
+}
+.dark .muji-shadow {
+  box-shadow: var(--shadow-sm);
+}
+
+/* Hover lift shadow */
+.zx-card-hover {
+  transition: transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
+}
+.zx-card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Brand glow button shadow */
+.shadow-brand {
+  box-shadow: var(--shadow-brand);
+}
+
+/* Input focus ring — pink */
+.muji-input {
+  border: 1.5px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.muji-input:focus {
+  outline: none;
+  border-color: var(--wood);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wood) 15%, transparent);
+}
+.muji-input::placeholder {
+  color: var(--subtle);
+}
+
+/* Pig Pink on light bg uses dark text for readability */
+.bg-wood { color: #FFFFFF; }
+.dark .bg-wood { color: #FFFFFF; }
+
+/* Transition for theme switch */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+/* Scrollbar hide */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

@@ -1,17 +1,27 @@
-import { createClient, type Client, type InArgs } from '@libsql/client';
+import { neon } from '@neondatabase/serverless';
 import bcrypt from 'bcryptjs';
 
-let _client: Client | null = null;
+// neon()'s TS types only expose the tagged-template overload;
+// cast to the plain-function signature we actually need.
+type SqlFn = (query: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
+
+let _sql: SqlFn | null = null;
 let _initPromise: Promise<void> | null = null;
 
-function getClient(): Client {
-  if (!_client) {
-    _client = createClient({
-      url: process.env.TURSO_DATABASE_URL!,
-      authToken: process.env.TURSO_AUTH_TOKEN,
-    });
-  }
-  return _client;
+function getSql(): SqlFn {
+  if (!_sql) _sql = neon(process.env.DATABASE_URL!) as unknown as SqlFn;
+  return _sql;
+}
+
+// Convert SQLite ? placeholders to PostgreSQL $1, $2, ...
+function toPositional(query: string): string {
+  let i = 0;
+  return query.replace(/\?/g, () => `$${++i}`);
+}
+
+// Neon doesn't accept BigInt params; convert to Number (IDs are always safe)
+function normalizeArgs(args: unknown[]): unknown[] {
+  return args.map(a => (typeof a === 'bigint' ? Number(a) : a));
 }
 
 async function ensureInit(): Promise<void> {
@@ -19,22 +29,32 @@ async function ensureInit(): Promise<void> {
   return _initPromise;
 }
 
-export async function dbGet<T>(sql: string, args: InArgs = []): Promise<T | null> {
+export async function dbGet<T>(query: string, args: unknown[] = []): Promise<T | null> {
   await ensureInit();
-  const { rows } = await getClient().execute({ sql, args });
-  return (rows[0] as unknown as T) ?? null;
+  const rows = await getSql()(toPositional(query), normalizeArgs(args));
+  return (rows[0] as T) ?? null;
 }
 
-export async function dbAll<T>(sql: string, args: InArgs = []): Promise<T[]> {
+export async function dbAll<T>(query: string, args: unknown[] = []): Promise<T[]> {
   await ensureInit();
-  const { rows } = await getClient().execute({ sql, args });
-  return rows as unknown as T[];
+  return await getSql()(toPositional(query), normalizeArgs(args)) as T[];
 }
 
-export async function dbRun(sql: string, args: InArgs = []): Promise<{ lastInsertRowid: bigint }> {
+// Internal run — no ensureInit, safe to call during schema initialization
+async function _run(query: string, args: unknown[]): Promise<{ lastInsertRowid: bigint }> {
+  const sql = getSql();
+  const normalized = normalizeArgs(args);
+  if (query.trimStart().toUpperCase().startsWith('INSERT')) {
+    const rows = await sql(toPositional(query) + ' RETURNING id', normalized);
+    return { lastInsertRowid: BigInt((rows[0] as { id: number })?.id ?? 0) };
+  }
+  await sql(toPositional(query), normalized);
+  return { lastInsertRowid: BigInt(0) };
+}
+
+export async function dbRun(query: string, args: unknown[] = []): Promise<{ lastInsertRowid: bigint }> {
   await ensureInit();
-  const result = await getClient().execute({ sql, args });
-  return { lastInsertRowid: result.lastInsertRowid ?? BigInt(0) };
+  return _run(query, args);
 }
 
 export function calcLateFee(deposit: number, endDate: string): { days: number; fee: number; showReport: boolean } {
@@ -59,29 +79,29 @@ export async function getAvailableQty(productId: number | bigint, totalQty: numb
 }
 
 async function initSchema() {
-  const c = getClient();
-  await c.batch([
-    { sql: `CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+  const sql = getSql();
+  const stmts = [
+    `CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
       avatar TEXT DEFAULT NULL, bio TEXT DEFAULT '', rating REAL DEFAULT 0,
       rating_count INTEGER DEFAULT 0, verified INTEGER NOT NULL DEFAULT 0,
       phone TEXT NOT NULL DEFAULT '', phone_verified INTEGER NOT NULL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )` },
-    { sql: `CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS products (
+      id BIGSERIAL PRIMARY KEY,
       seller_id INTEGER NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT '其他', images TEXT NOT NULL DEFAULT '[]',
       daily_rent REAL NOT NULL, deposit REAL NOT NULL, location TEXT DEFAULT '',
       quantity INTEGER NOT NULL DEFAULT 1, estimated_value REAL NOT NULL DEFAULT 0,
       latitude REAL DEFAULT NULL, longitude REAL DEFAULT NULL,
       status TEXT NOT NULL DEFAULT 'available', billing_unit TEXT NOT NULL DEFAULT 'daily',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (seller_id) REFERENCES users(id)
-    )` },
-    { sql: `CREATE TABLE IF NOT EXISTS orders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+    `CREATE TABLE IF NOT EXISTS orders (
+      id BIGSERIAL PRIMARY KEY,
       product_id INTEGER NOT NULL, buyer_id INTEGER NOT NULL, seller_id INTEGER NOT NULL,
       start_date TEXT NOT NULL, end_date TEXT NOT NULL, days INTEGER NOT NULL,
       billing_unit TEXT NOT NULL DEFAULT 'daily', total_rent REAL NOT NULL,
@@ -93,66 +113,70 @@ async function initSchema() {
       return_buyer_photos TEXT NOT NULL DEFAULT '[]', return_seller_photos TEXT NOT NULL DEFAULT '[]',
       compensation_requested INTEGER NOT NULL DEFAULT 0, compensation_reason TEXT NOT NULL DEFAULT '',
       late_fee REAL NOT NULL DEFAULT 0, buyer_reviewed INTEGER NOT NULL DEFAULT 0,
-      seller_reviewed INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      seller_reviewed INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (product_id) REFERENCES products(id),
       FOREIGN KEY (buyer_id) REFERENCES users(id), FOREIGN KEY (seller_id) REFERENCES users(id)
-    )` },
-    { sql: `CREATE TABLE IF NOT EXISTS reviews (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+    `CREATE TABLE IF NOT EXISTS reviews (
+      id BIGSERIAL PRIMARY KEY,
       order_id INTEGER NOT NULL, reviewer_id INTEGER NOT NULL, reviewee_id INTEGER NOT NULL,
       rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
       comment TEXT DEFAULT '', review_type TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (order_id) REFERENCES orders(id),
       FOREIGN KEY (reviewer_id) REFERENCES users(id), FOREIGN KEY (reviewee_id) REFERENCES users(id)
-    )` },
-    { sql: `CREATE TABLE IF NOT EXISTS verify_requests (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+    `CREATE TABLE IF NOT EXISTS verify_requests (
+      id BIGSERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL UNIQUE, reason TEXT DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      status TEXT NOT NULL DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
-    )` },
-    { sql: `CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+    `CREATE TABLE IF NOT EXISTS messages (
+      id BIGSERIAL PRIMARY KEY,
       order_id INTEGER NOT NULL, sender_id INTEGER NOT NULL, content TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (order_id) REFERENCES orders(id), FOREIGN KEY (sender_id) REFERENCES users(id)
-    )` },
-    { sql: `CREATE TABLE IF NOT EXISTS phone_otps (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      phone TEXT NOT NULL, otp TEXT NOT NULL, expires_at DATETIME NOT NULL,
+    )`,
+    `CREATE TABLE IF NOT EXISTS phone_otps (
+      id BIGSERIAL PRIMARY KEY,
+      phone TEXT NOT NULL, otp TEXT NOT NULL, expires_at TIMESTAMP NOT NULL,
       used INTEGER NOT NULL DEFAULT 0
-    )` },
-    { sql: `CREATE TABLE IF NOT EXISTS notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    )`,
+    `CREATE TABLE IF NOT EXISTS notifications (
+      id BIGSERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL, type TEXT NOT NULL DEFAULT 'order',
       message TEXT NOT NULL, link TEXT NOT NULL DEFAULT '',
-      is_read INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_read INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
-    )` },
-  ], 'write');
+    )`,
+  ];
 
-  const { rows } = await c.execute('SELECT COUNT(*) as c FROM users');
-  if ((rows[0] as unknown as { c: number }).c === 0) await seedData(c);
+  for (const stmt of stmts) {
+    await sql(stmt, []);
+  }
+
+  const rows = await sql('SELECT COUNT(*) as c FROM users', []);
+  if (Number((rows[0] as { c: number }).c) === 0) await seedData();
 }
 
-async function seedData(c: Client) {
+async function seedData() {
   const hash = (pw: string) => bcrypt.hashSync(pw, 10);
 
-  const r1 = await c.execute({
-    sql: `INSERT INTO users (name, email, password, bio, rating, rating_count, verified, phone, phone_verified)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: ['張小明', 'demo@example.com', hash('123456'), '熱愛分享好物，出租的東西都有好好保養！', 4.8, 12, 1, '0912345678', 1],
-  });
+  const r1 = await _run(
+    `INSERT INTO users (name, email, password, bio, rating, rating_count, verified, phone, phone_verified)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['張小明', 'demo@example.com', hash('123456'), '熱愛分享好物，出租的東西都有好好保養！', 4.8, 12, 1, '0912345678', 1],
+  );
 
-  const r2 = await c.execute({
-    sql: `INSERT INTO users (name, email, password, bio, rating, rating_count, verified, phone, phone_verified)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: ['李小美', 'seller@example.com', hash('123456'), '攝影愛好者，器材保養得很好，歡迎租借！', 4.9, 8, 1, '0923456789', 1],
-  });
+  const r2 = await _run(
+    `INSERT INTO users (name, email, password, bio, rating, rating_count, verified, phone, phone_verified)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['李小美', 'seller@example.com', hash('123456'), '攝影愛好者，器材保養得很好，歡迎租借！', 4.9, 8, 1, '0923456789', 1],
+  );
 
-  const id1 = r1.lastInsertRowid!;
-  const id2 = r2.lastInsertRowid!;
+  const id1 = r1.lastInsertRowid;
+  const id2 = r2.lastInsertRowid;
 
   const products = [
     { seller_id: id2, quantity: 2, ev: 80000, title: 'Canon EOS R5 全片幅相機', desc: 'Canon旗艦相機，支援8K影片錄製，附24-105mm鏡頭、兩顆電池與充電器。保養良好，快門數少。', cat: '電子產品', rent: 800, dep: 8000, loc: '台北市信義區', lat: 25.0330, lng: 121.5654 },
@@ -166,10 +190,10 @@ async function seedData(c: Client) {
   ];
 
   for (const p of products) {
-    await c.execute({
-      sql: `INSERT INTO products (seller_id, title, description, category, images, daily_rent, deposit, location, quantity, estimated_value, latitude, longitude, status)
-            VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, 'available')`,
-      args: [p.seller_id, p.title, p.desc, p.cat, p.rent, p.dep, p.loc, p.quantity, p.ev, p.lat, p.lng],
-    });
+    await _run(
+      `INSERT INTO products (seller_id, title, description, category, images, daily_rent, deposit, location, quantity, estimated_value, latitude, longitude, status)
+       VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, 'available')`,
+      [p.seller_id, p.title, p.desc, p.cat, p.rent, p.dep, p.loc, p.quantity, p.ev, p.lat, p.lng],
+    );
   }
 }

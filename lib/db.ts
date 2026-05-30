@@ -1,15 +1,16 @@
 import { neon } from '@neondatabase/serverless';
 import bcrypt from 'bcryptjs';
 
-// neon()'s TS types only expose the tagged-template overload;
-// cast to the plain-function signature we actually need.
-type SqlFn = (query: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
+// neon() v1 requires either tagged-template or .query() for conventional calls
+type SqlClient = {
+  query: (query: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
+};
 
-let _sql: SqlFn | null = null;
+let _sql: SqlClient | null = null;
 let _initPromise: Promise<void> | null = null;
 
-function getSql(): SqlFn {
-  if (!_sql) _sql = neon(process.env.DATABASE_URL!) as unknown as SqlFn;
+function getSql(): SqlClient {
+  if (!_sql) _sql = neon(process.env.DATABASE_URL!) as unknown as SqlClient;
   return _sql;
 }
 
@@ -31,13 +32,13 @@ async function ensureInit(): Promise<void> {
 
 export async function dbGet<T>(query: string, args: unknown[] = []): Promise<T | null> {
   await ensureInit();
-  const rows = await getSql()(toPositional(query), normalizeArgs(args));
+  const rows = await getSql().query(toPositional(query), normalizeArgs(args));
   return (rows[0] as T) ?? null;
 }
 
 export async function dbAll<T>(query: string, args: unknown[] = []): Promise<T[]> {
   await ensureInit();
-  return await getSql()(toPositional(query), normalizeArgs(args)) as T[];
+  return await getSql().query(toPositional(query), normalizeArgs(args)) as T[];
 }
 
 // Internal run — no ensureInit, safe to call during schema initialization
@@ -45,10 +46,10 @@ async function _run(query: string, args: unknown[]): Promise<{ lastInsertRowid: 
   const sql = getSql();
   const normalized = normalizeArgs(args);
   if (query.trimStart().toUpperCase().startsWith('INSERT')) {
-    const rows = await sql(toPositional(query) + ' RETURNING id', normalized);
+    const rows = await sql.query(toPositional(query) + ' RETURNING id', normalized);
     return { lastInsertRowid: BigInt((rows[0] as { id: number })?.id ?? 0) };
   }
-  await sql(toPositional(query), normalized);
+  await sql.query(toPositional(query), normalized);
   return { lastInsertRowid: BigInt(0) };
 }
 
@@ -153,10 +154,10 @@ async function initSchema() {
   ];
 
   for (const stmt of stmts) {
-    await sql(stmt, []);
+    await sql.query(stmt, []);
   }
 
-  const rows = await sql('SELECT COUNT(*) as c FROM users', []);
+  const rows = await sql.query('SELECT COUNT(*) as c FROM users', []);
   if (Number((rows[0] as { c: number }).c) === 0) await seedData();
 }
 
